@@ -29,11 +29,11 @@ typedef EthSign = void Function(int id, WCEthereumSignMessage message);
 typedef EthTransaction = void Function(
     int id, WCEthereumTransaction transaction);
 typedef CustomRequest = void Function(int id, String payload);
+typedef AlgoSignTxn = void Function(int id, List<dynamic>? transactions);
 
 class WCClient {
   late WebSocketChannel _webSocket;
   Stream _socketStream = Stream.empty();
-
   // ignore: close_sinks
   WebSocketSink? _socketSink;
   WCSession? _session;
@@ -54,6 +54,7 @@ class WCClient {
     this.onEthSendTransaction,
     this.onCustomRequest,
     this.onConnect,
+    this.onAlgoSign
   });
 
   final SessionRequest? onSessionRequest;
@@ -62,20 +63,15 @@ class WCClient {
   final EthSign? onEthSign;
   final EthTransaction? onEthSignTransaction, onEthSendTransaction;
   final CustomRequest? onCustomRequest;
+  final AlgoSignTxn? onAlgoSign;
   final Function()? onConnect;
 
   WCSession? get session => _session;
-
   WCPeerMeta? get peerMeta => _peerMeta;
-
   WCPeerMeta? get remotePeerMeta => _remotePeerMeta;
-
   int? get chainId => _chainId;
-
   String? get peerId => _peerId;
-
   String? get remotePeerId => _remotePeerId;
-
   bool get isConnected => _isConnected;
 
   connectNewSession({
@@ -100,8 +96,7 @@ class WCClient {
     );
   }
 
-  WCSessionStore get sessionStore =>
-      WCSessionStore(
+  WCSessionStore get sessionStore => WCSessionStore(
         session: _session!,
         peerMeta: _peerMeta!,
         peerId: _peerId!,
@@ -138,13 +133,11 @@ class WCClient {
   }) async {
     final param = WCSessionUpdate(
       approved: approved,
-      chainId: chainId ?? _chainId,
+      chainId: _chainId ?? chainId,
       accounts: accounts,
     );
     final request = JsonRpcRequest(
-      id: DateTime
-          .now()
-          .millisecondsSinceEpoch,
+      id: DateTime.now().millisecondsSinceEpoch,
       method: WCMethod.SESSION_UPDATE,
       params: [param.toJson()],
     );
@@ -206,7 +199,7 @@ class WCClient {
     _remotePeerId = remotePeerId;
     _chainId = chainId;
     final bridgeUri =
-    Uri.parse(session.bridge.replaceAll('https://', 'wss://'));
+        Uri.parse(session.bridge.replaceAll('https://', 'wss://'));
     _webSocket = WebSocketChannel.connect(bridgeUri);
     _isConnected = true;
     if (fromSessionStore) {
@@ -254,7 +247,7 @@ class WCClient {
 
   _listen() {
     _socketStream.listen(
-          (event) async {
+      (event) async {
         print('DATA: $event ${event.runtimeType}');
         final Map<String, dynamic> decoded = json.decode("$event");
         print('DECODED: $decoded ${decoded.runtimeType}');
@@ -280,7 +273,7 @@ class WCClient {
 
   Future<String> _decrypt(WCSocketMessage socketMessage) async {
     final payload =
-    WCEncryptionPayload.fromJson(jsonDecode(socketMessage.payload));
+        WCEncryptionPayload.fromJson(jsonDecode(socketMessage.payload));
     final decrypted = await WCCipher.decrypt(payload, _session!.key);
     print("DECRYPTED: $decrypted");
     return decrypted;
@@ -311,6 +304,10 @@ class WCClient {
         _remotePeerMeta = param.peerMeta;
         _chainId = param.chainId;
         onSessionRequest?.call(request.id, param.peerMeta);
+        break;
+      case WCMethod.ALGO_SEND_TXN:
+        print('ALGO_SEND_TXN $request');
+        onAlgoSign?.call(request.id, request.params);
         break;
       case WCMethod.SESSION_UPDATE:
         final param = WCSessionUpdate.fromJson(request.params!.first);
