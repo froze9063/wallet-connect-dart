@@ -26,10 +26,11 @@ typedef SessionRequest = void Function(int id, WCPeerMeta peerMeta);
 typedef SocketError = void Function(dynamic message);
 typedef SocketClose = void Function(int? code, String? reason);
 typedef EthSign = void Function(int id, WCEthereumSignMessage message);
-typedef EthTransaction = void Function(
-    int id, WCEthereumTransaction transaction);
+typedef EthTransaction = void Function(int id, WCEthereumTransaction transaction);
 typedef CustomRequest = void Function(int id, String payload);
 typedef AlgoSignTxn = void Function(int id, List<dynamic>? transactions);
+typedef WalletSwitchEthereumChain = void Function(int id, String chainId);
+typedef EthSignTypeDataV4 = void Function(int id, WCEthereumSignMessage wcEthereumSignMessage);
 
 class WCClient {
   late WebSocketChannel _webSocket;
@@ -51,10 +52,12 @@ class WCClient {
     this.onDisconnect,
     this.onEthSign,
     this.onEthSignTransaction,
+    this.onWalletSwitchEthereumChain,
     this.onEthSendTransaction,
+    this.onEthSignTypeDataV4,
     this.onCustomRequest,
     this.onConnect,
-    this.onAlgoSign
+    this.onAlgoSign,
   });
 
   final SessionRequest? onSessionRequest;
@@ -65,6 +68,8 @@ class WCClient {
   final CustomRequest? onCustomRequest;
   final AlgoSignTxn? onAlgoSign;
   final Function()? onConnect;
+  final WalletSwitchEthereumChain? onWalletSwitchEthereumChain;
+  final EthSignTypeDataV4? onEthSignTypeDataV4;
 
   WCSession? get session => _session;
   WCPeerMeta? get peerMeta => _peerMeta;
@@ -97,13 +102,13 @@ class WCClient {
   }
 
   WCSessionStore get sessionStore => WCSessionStore(
-        session: _session!,
-        peerMeta: _peerMeta!,
-        peerId: _peerId!,
-        remotePeerId: _remotePeerId!,
-        remotePeerMeta: _remotePeerMeta!,
-        chainId: _chainId!,
-      );
+    session: _session!,
+    peerMeta: _peerMeta!,
+    peerId: _peerId!,
+    remotePeerId: _remotePeerId!,
+    remotePeerMeta: _remotePeerMeta!,
+    chainId: _chainId!,
+  );
 
   approveSession({required List<String> accounts, int? chainId}) {
     if (_handshakeId <= 0) {
@@ -199,7 +204,7 @@ class WCClient {
     _remotePeerId = remotePeerId;
     _chainId = chainId;
     final bridgeUri =
-        Uri.parse(session.bridge.replaceAll('https://', 'wss://'));
+    Uri.parse(session.bridge.replaceAll('https://', 'wss://'));
     _webSocket = WebSocketChannel.connect(bridgeUri);
     _isConnected = true;
     if (fromSessionStore) {
@@ -247,7 +252,7 @@ class WCClient {
 
   _listen() {
     _socketStream.listen(
-      (event) async {
+          (event) async {
         print('DATA: $event ${event.runtimeType}');
         final Map<String, dynamic> decoded = json.decode("$event");
         print('DECODED: $decoded ${decoded.runtimeType}');
@@ -273,7 +278,7 @@ class WCClient {
 
   Future<String> _decrypt(WCSocketMessage socketMessage) async {
     final payload =
-        WCEncryptionPayload.fromJson(jsonDecode(socketMessage.payload));
+    WCEncryptionPayload.fromJson(jsonDecode(socketMessage.payload));
     final decrypted = await WCCipher.decrypt(payload, _session!.key);
     print("DECRYPTED: $decrypted");
     return decrypted;
@@ -370,6 +375,26 @@ class WCClient {
         print('ETH_SEND_TRANSACTION $request');
         final param = WCEthereumTransaction.fromJson(request.params!.first);
         onEthSendTransaction?.call(request.id, param);
+        break;
+      case WCMethod.WALLET_SWITCHETHEREUMCHAIN:
+        print('WALLET_SWITCHETHEREUMCHAIN $request');
+        final params = request.params!.first as Map<String, dynamic>;
+        onWalletSwitchEthereumChain?.call(request.id, params['chainId'] as String);
+        break;
+      case WCMethod.ETH_SIGN_TYPE_DATA_V4:
+        print('ETH_SIGN_TYPE_DATA_V4 $request');
+        final params = request.params!.cast<String>();
+        if (params.length < 2) {
+          throw InvalidJsonRpcParamsException(request.id);
+        }
+
+        onEthSignTypeDataV4?.call(
+          request.id,
+          WCEthereumSignMessage(
+            raw: params,
+            type: WCSignType.TYPED_MESSAGE,
+          ),
+        );
         break;
       default:
     }
